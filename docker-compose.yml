@@ -1,0 +1,163 @@
+version: "3"
+
+# --- DÉFINITION DU RÉSEAU DÉDIÉ ---
+networks:
+  tp-network:
+    driver: bridge
+
+services:
+  # =========================================
+  # CLUSTER HADOOP (1 Master + 2 Workers)
+  # =========================================
+  
+  # --- MASTER NODE ---
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: always
+    ports:
+      - 9870:9870 # Interface Web HDFS
+      - 9000:9000 # Port interne HDFS (utilisé par le script Python)
+    volumes:
+      - namenode_data:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    container_name: resourcemanager
+    restart: always
+    ports:
+      - 8088:8088 # Interface Web YARN
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  # --- WORKER 1 ---
+  datanode1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode1
+    restart: always
+    volumes:
+      - datanode1_data:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  nodemanager1:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: nodemanager1
+    restart: always
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  # --- WORKER 2 ---
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode2
+    restart: always
+    volumes:
+      - datanode2_data:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  nodemanager2:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: nodemanager2
+    restart: always
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - tp-network
+
+  # =========================================
+  # CLUSTER OPENSEARCH (2 Nœuds + Dashboards)
+  # =========================================
+  
+  opensearch-node1:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: opensearch-node1
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node1
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2
+      - cluster.initial_master_nodes=opensearch-node1,opensearch-node2
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - plugins.security.disabled=true # Sécurité désactivée pour le TP
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_data1:/usr/share/opensearch/data
+    ports:
+      - 9200:9200 # API REST OpenSearch
+      - 9600:9600
+    networks:
+      - tp-network
+
+  opensearch-node2:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: opensearch-node2
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node2
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2
+      - cluster.initial_master_nodes=opensearch-node1,opensearch-node2
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - plugins.security.disabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_data2:/usr/share/opensearch/data
+    networks:
+      - tp-network
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.0
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601 # Interface Web Dashboards
+    expose:
+      - "5601"
+    environment:
+      - 'OPENSEARCH_HOSTS=["http://opensearch-node1:9200","http://opensearch-node2:9200"]'
+      - "DISABLE_SECURITY_DASHBOARDS_PLUGIN=true"
+    networks:
+      - tp-network
+
+# --- VOLUMES PERSISTANTS ---
+volumes:
+  namenode_data:
+  datanode1_data:
+  datanode2_data:
+  opensearch_data1:
+  opensearch_data2:
